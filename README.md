@@ -1,4 +1,4 @@
-﻿# Jiangshi 2
+# Jiangshi 2
 
 Experimental Windows recompilation and English-presentation project for
 Kyonshiizu 2, using NESRecomp.
@@ -20,7 +20,13 @@ Historical one-time translation installers are not required.
 - A compatible NESRecomp checkout and its built NESRecomp.exe
 - A user-supplied copy of the supported game ROM
 
-The NESRecomp version used for testing will be recorded before publication.
+Tested NESRecomp dependency:
+
+- Repository: https://github.com/mstan/nesrecomp
+- Commit: fc0bf3fa46a710464960c0a1f2d3b83b4d345600
+- Local checkout reported no changes during the initial build verification.
+- The engine's license is preserved in docs/NESRecomp-LICENSE.txt.
+- Engine source and binaries are not bundled in this repository.
 
 ## Supported ROM
 
