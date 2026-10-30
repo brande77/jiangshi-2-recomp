@@ -1,0 +1,5 @@
+[game]
+name = "Jiangshi 2"
+id = "kyonshiizu2"
+mapper = 80
+cycle_accurate = true

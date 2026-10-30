@@ -1,0 +1,19 @@
+* text=auto
+
+.gitattributes text eol=lf
+.gitignore text eol=lf
+CMakeLists.txt text eol=lf
+
+*.c text eol=lf
+*.h text eol=lf
+*.cmake text eol=lf
+*.toml text eol=lf
+*.tsv text eol=lf
+*.md text eol=lf
+
+*.bat text eol=crlf
+
+# Final empty TSV fields require a trailing tab.
+# Keep normal whitespace checks for other files.
+/dialogue_translations.tsv whitespace=-blank-at-eol
+/location_translations.tsv whitespace=-blank-at-eol

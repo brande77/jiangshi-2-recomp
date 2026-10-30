@@ -1,0 +1,66 @@
+# User-supplied game images
+/roms/
+*.nes
+*.fds
+*.unf
+*.unif
+
+# Build and generated output
+/build/
+/generated/
+/src_generated/
+/CMakeFiles/
+/CMakeCache.txt
+/cmake_install.cmake
+/compile_commands.json
+*.exe
+*.dll
+*.obj
+*.o
+*.pdb
+
+# Local backups and temporary files
+/translation_backups/
+*.before_*
+*.previous_*
+*.tmp
+*.bak
+*.log
+*.request
+__pycache__/
+*.pyc
+
+# Raw dumps, captures, and development snapshots
+/translation_bulk_input_*.txt
+/translation_pipeline_snapshot.txt
+/command_panel_diagnostic.txt
+/live_screen_capture*.txt
+/cyc_shot_*.png
+/chr_bank_*.bmp
+/chr_font.bmp
+/raw_pointer_dump.txt
+/text_reader_trace.txt
+
+# Generated runtime coverage reports
+/translation_coverage.tsv
+/location_caption_coverage.tsv
+
+# Local credentials and machine-specific settings
+.env
+.env.*
+!.env.example
+/CMakeUserPresets.json
+
+# Local saves and save states
+/saves/
+/save_states/
+*.sav
+*.srm
+*.state
+*.state.*
+
+# One-time preparation and migration helpers
+/prepare_repo_portability.py
+/fix_item_quantity_digits.py
+/clarify_save_labels.py
+/temple_rest_save_annotation.py
