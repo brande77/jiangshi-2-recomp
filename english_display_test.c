@@ -61,6 +61,8 @@ static const uint8_t *letter_columns(char c)
     static const uint8_t question[5] = {0x02,0x01,0x51,0x09,0x06};
 
     if (c >= 'A' && c <= 'Z') return letters[c - 'A'];
+    static const uint8_t warehouse_exclamation[5]={0,0,0x5F,0,0};
+    if(c=='!')return warehouse_exclamation;
     if (c == '.') return dot;
     if (c == ',') return comma;
     if (c == '?') return question;
@@ -164,6 +166,40 @@ static int character_menu_v2_highlight(unsigned row)
         if (mask == 15) return (int)slot;
     }
     return -1;
+}
+
+/* CHARACTER_ERASE_NAMES_V1: display-only, no save or input changes. */
+static void character_erase_names_draw(void)
+{
+    static const uint8_t names[4][4] = {
+        {8,9,10,11},{12,13,14,15},{0,1,2,3},{4,5,6,7}
+    };
+    static const char *const prompts[4] = {
+        "DEPPA ERASE SAVE?","TORA ERASE SAVE?",
+        "CHIBIKURO ERASE SAVE?","SUIKA ERASE SAVE?"
+    };
+    static const char question[]="ERASE SAVE?";
+    int who=-1;
+    for(unsigned n=0;n<4;n++){
+        int match=1;
+        for(unsigned i=0;i<4;i++)
+            if(cyc_render_nametable((uint16_t)(0x2343+i))!=names[n][i])match=0;
+        if(match){who=(int)n;break;}
+    }
+    if(who<0||cyc_render_nametable(0x2347)!=0x20||
+       cyc_render_nametable(0x2357)!='N'||cyc_render_nametable(0x2358)!='O'||
+       cyc_render_nametable(0x235B)!='O'||cyc_render_nametable(0x235C)!='K')return;
+    for(unsigned i=0;i<sizeof(question)-1;i++)
+        if(cyc_render_nametable((uint16_t)(0x2348+i))!=(uint8_t)question[i])return;
+    for(int y=209;y<217;y++)
+        if(cyc_render_line_bg_table(y)!=0x1000||cyc_render_line_scroll_x(y)!=0||
+           cyc_render_line_scroll_y(y)!=239+y||!(cyc_render_line_mask(y)&8))return;
+    /* The longest prompt is 21 glyphs: 125 pixels in the original 128-pixel text region. */
+    for(int y=209;y<217;y++){
+        uint32_t background=english_picture[y*256+16];
+        for(int x=24;x<152;x++)english_picture[y*256+x]=background;
+    }
+    draw_words(24,209,prompts[who]);
 }
 
 static void character_menu_v2_draw(void)
@@ -279,6 +315,19 @@ static const uint8_t *title_original_small_glyph(char c)
     for(unsigned i=0;alphabet[i];i++)if(c==alphabet[i])return letters[i];
     return blank;
 }
+/* SAVE_SLOT_HIGHLIGHT_V2: follow the game's rendered pink selection. */
+static int title_slot_highlight(const uint32_t *original,int label_x,int y,uint32_t *color)
+{
+    unsigned count=0;
+    for(int py=y-1;py<y+8;py++)for(int px=label_x-2;px<label_x+80;px++){
+        if(px<0||px>=256||py<0||py>=240)continue;
+        uint32_t v=original[py*256+px];
+        int r=(int)((v>>16)&255),g=(int)((v>>8)&255),b=(int)(v&255);
+        if(r>96&&b>96&&r>g+48&&b>g+48){*color=v;count++;}
+    }
+    return count>=4;
+}
+
 static int title_romaji_draw(const uint32_t *original)
 {
     uint32_t face=0,shadow=0;
@@ -320,7 +369,7 @@ static int title_romaji_draw(const uint32_t *original)
             if(x>=subtitle_clip_left&&x<subtitle_clip_right&&y>=84&&y<96)english_picture[y*256+x]=face;
         }
     }
-    /* SAVE_SLOT_LABELS_V1: presentation only; native detection and cursor unchanged. */
+    /* SAVE_SLOT_LABELS_V2: full English-label selection background. */
     static const char *const save_slot_labels[2]={"SAVE SLOT ONE","SAVE SLOT TWO"};
     for(unsigned slot=0;slot<2;slot++){
         int y=113+(int)slot*24;
@@ -328,12 +377,14 @@ static int title_romaji_draw(const uint32_t *original)
         if(slot_scroll<0||slot_scroll>511||cyc_render_line_bg_table(y)!=0x1000||
            cyc_render_line_scroll_y(y)!=239+y)continue;
         int label_x=97+255-slot_scroll;
-        int erase_left=label_x,erase_right=label_x+80;
+        uint32_t selection_color=background;
+        int selected=title_slot_highlight(original,label_x,y,&selection_color);
+        int erase_left=label_x-2,erase_right=label_x+80;
         if(erase_left<0)erase_left=0;
         if(erase_right>256)erase_right=256;
         if(erase_left>=erase_right)continue;
         for(int py=y-1;py<y+8;py++)for(int px=erase_left;px<erase_right;px++)
-            english_picture[py*256+px]=background;
+            english_picture[py*256+px]=selected?selection_color:background;
         draw_words(label_x,y,save_slot_labels[slot]);
     }
     return 1;
@@ -579,7 +630,12 @@ static const int16_t submenu_tiles_17[] = {192,255,255,255,255,255,255,255,255,2
 static const SubmenuPatch submenu_patches_17[] = {{16,0,88,16,16,9,"DROP WHAT?"}};
 static const int16_t submenu_tiles_18[] = {192,255,255,255,255,255,255,255,255,255,255,193,197,255,221,222,198,255,255,203,239,245,255,197,197,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,197,197,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,197,197,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,197,197,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,197,197,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,197,197,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,197,197,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,197,197,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,197,197,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,197,197,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,197,197,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,197,197,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,197,197,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,197,197,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,197,197,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,197,197,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,197,197,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,197,194,196,196,196,196,196,196,196,196,196,196,195};
 static const SubmenuPatch submenu_patches_18[] = {{16,0,88,16,16,9,"SELL WHAT?"}};
+/* ACQUISITION_POPUP_V1: ROM template 16EE0; retain the item-name row. */
+static const int16_t submenu_tiles_acquired[] = {192,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,193,197,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,197,197,255,255,255,255,255,255,255,255,255,255,197,197,255,255,198,219,222,202,240,216,255,255,197,197,255,255,255,255,255,255,255,255,255,255,197,197,255,255,255,255,255,255,255,255,255,255,197,197,255,255,255,255,255,255,255,255,255,255,197,194,196,196,196,196,196,196,196,196,196,196,195};
+static const SubmenuPatch submenu_patches_acquired[] = {{8,16,88,32,15,25,"YOU GOT IT."}};
+
 static const SubmenuDefinition submenu_definitions[] = {
+{submenu_tiles_acquired,12,8,submenu_patches_acquired,1,0},
 {submenu_tiles_0,12,14,submenu_patches_0,5,0},
 {submenu_tiles_1,12,14,submenu_patches_1,6,0},
 {submenu_tiles_2,12,6,submenu_patches_2,1,0},
@@ -600,25 +656,23 @@ static const SubmenuDefinition submenu_definitions[] = {
 {submenu_tiles_17,12,20,submenu_patches_17,1,0},
 {submenu_tiles_18,12,20,submenu_patches_18,1,0}
 };
+/* SUBMENU_WRAP_V2: logical-grid matching across nametable boundaries. */
 static unsigned grouped_submenu_find_full(SubmenuPanel out[8])
 {
     unsigned count=0;
-    for(unsigned table=0;table<4&&count<8;table++)
-    for(unsigned row=0;row<30&&count<8;row++)
-    for(unsigned col=0;col<32&&count<8;col++){
-        uint16_t address=(uint16_t)(0x2000+table*0x400+row*32+col);
-        if(cyc_render_nametable(address)!=0xC0)continue;
+    for(unsigned row=0;row<60&&count<8;row++)
+    for(unsigned col=0;col<64&&count<8;col++){
+        if(command_world_tile(col,row)!=0xC0)continue;
         for(unsigned d=0;d<sizeof(submenu_definitions)/sizeof(submenu_definitions[0])&&count<8;d++){
             const SubmenuDefinition *def=&submenu_definitions[d];
-            if(row+def->height>30||col+def->width>32)continue;
             int ok=1;
             for(unsigned r=0;r<def->height&&ok;r++)for(unsigned c=0;c<def->width;c++){
                 int tile=def->tiles[r*def->width+c];
-                if(tile>=0&&cyc_render_nametable((uint16_t)(address+r*32+c))!=(uint8_t)tile){ok=0;break;}
+                if(tile>=0&&command_world_tile(col+c,row+r)!=(uint8_t)tile){ok=0;break;}
             }
             if(!ok)continue;
-            int world_x=(int)((table&1u)*256+col*8);
-            int world_y=(int)((table>>1)*240+row*8);
+            int world_x=(int)col*8;
+            int world_y=(int)row*8;
             int height=(int)def->height*8,width=(int)def->width*8;
             for(int top=0;top+height<=240&&count<8;top++){
                 if(cyc_render_line_scroll_y(top)!=world_y)continue;
@@ -630,7 +684,7 @@ static unsigned grouped_submenu_find_full(SubmenuPanel out[8])
                 for(int y=top;y<top+height;y++)
                     if(cyc_render_line_bg_table(y)!=0x1000||!(cyc_render_line_mask(y)&8)||
                        cyc_render_line_scroll_x(y)!=scroll||
-                       cyc_render_line_scroll_y(y)!=world_y+y-top){ok=0;break;}
+                       cyc_render_line_scroll_y(y)!=(world_y+y-top)%480){ok=0;break;}
                 if(!ok)continue;
                 out[count].definition=def;out[count].x=left;out[count].y=top;count++;
             }
@@ -708,18 +762,15 @@ static unsigned grouped_submenu_find(SubmenuPanel out[8])
     if(submenu_occluder_count){
         for(unsigned pass=0;pass<8&&count<8;pass++){
             unsigned before=count;
-            for(unsigned table=0;table<4&&count<8;table++)
-            for(unsigned row=0;row<30&&count<8;row++)
-            for(unsigned col=0;col<32&&count<8;col++){
-                uint16_t a=(uint16_t)(0x2000+table*0x400+row*32+col);
+            for(unsigned row=0;row<60&&count<8;row++)
+            for(unsigned col=0;col<64&&count<8;col++){
                 for(unsigned d=0;d<sizeof(submenu_definitions)/sizeof(submenu_definitions[0])&&count<8;d++){
                     const SubmenuDefinition *def=&submenu_definitions[d];
-                    if(row+def->height>30||col+def->width>32)continue;
-                    if(cyc_render_nametable(a)!=0xC0&&
-                       cyc_render_nametable((uint16_t)(a+def->width-1))!=0xC1&&
-                       cyc_render_nametable((uint16_t)(a+(def->height-1)*32+def->width-1))!=0xC3)continue;
+                    if(command_world_tile(col,row)!=0xC0&&
+                       command_world_tile(col+def->width-1,row)!=0xC1&&
+                       command_world_tile(col+def->width-1,row+def->height-1)!=0xC3)continue;
                     int width=(int)def->width*8,height=(int)def->height*8;
-                    int world_x=(int)((table&1u)*256+col*8),world_y=(int)((table>>1)*240+row*8);
+                    int world_x=(int)col*8,world_y=(int)row*8;
                     for(int top=0;top+height<=240&&count<8;top++){
                         if(cyc_render_line_scroll_y(top)!=world_y)continue;
                         int scroll=cyc_render_line_scroll_x(top);
@@ -732,14 +783,14 @@ static unsigned grouped_submenu_find(SubmenuPanel out[8])
                         int ok=1;
                         for(int y=top;y<top+height;y++)if(cyc_render_line_bg_table(y)!=0x1000||
                            !(cyc_render_line_mask(y)&8)||cyc_render_line_scroll_x(y)!=scroll||
-                           cyc_render_line_scroll_y(y)!=world_y+y-top){ok=0;break;}
+                           cyc_render_line_scroll_y(y)!=(world_y+y-top)%480){ok=0;break;}
                         if(!ok)continue;
                         unsigned covered=0,glyphs=0,borders=0;
                         for(unsigned r=0;r<def->height&&ok;r++)for(unsigned c=0;c<def->width;c++){
                             if(submenu_tile_covered(left+(int)c*8,top+(int)r*8,left,top,width,height)){covered++;continue;}
                             int tile=def->tiles[r*def->width+c];
                             if(tile<0)continue;
-                            if(cyc_render_nametable((uint16_t)(a+r*32+c))!=(uint8_t)tile){ok=0;break;}
+                            if(command_world_tile(col+c,row+r)!=(uint8_t)tile){ok=0;break;}
                             if(tile>=0xC0&&tile<=0xC5)borders++;
                             else if(tile!=0xFF&&tile!=0xF4)glyphs++;
                         }
@@ -1078,47 +1129,118 @@ static void item_catalog_load(void)
     }
     fclose(f);if(log){fprintf(log,"LOADED %u entries; REJECTED %u entries.\n",loaded,rejected);fclose(log);}
 }
+/* ITEM_WINDOW_WRAP_V2: shared 64x60 grid access for item windows. */
+static uint8_t item_window_tile(const ItemWindow *w,int r,int c)
+{
+    unsigned x=(w->table&1u)*32+w->col;
+    unsigned y=(w->table>>1)*30+w->row;
+    return command_world_tile((unsigned)((int)x+c+64)%64,(unsigned)((int)y+r+60)%60);
+}
+
 static int item_window_position(unsigned table,unsigned row,unsigned col,unsigned width,unsigned height,ItemWindow *out)
 {
-    int world_x=(int)((table&1u)*256+col*8),world_y=(int)((table>>1)*240+row*8);
+    int wx=(int)((table&1u)*256+col*8),wy=(int)((table>>1)*240+row*8);
     for(int top=0;top+(int)height*8<=240;top++){
-        if(cyc_render_line_scroll_y(top)!=world_y)continue;
-        int scroll=cyc_render_line_scroll_x(top);if(scroll<0||scroll>511)continue;
-        int left=(world_x-scroll+512)%512;if(left+(int)width*8>256)continue;
+        if(cyc_render_line_scroll_y(top)!=wy)continue;
+        int sx=cyc_render_line_scroll_x(top);
+        if(sx<0||sx>=512)continue;
+        int left=(wx-sx+512)%512;
+        if(left+(int)width*8>256)continue;
         int ok=1;
-        for(int y=top;y<top+(int)height*8;y++)if(cyc_render_line_bg_table(y)!=0x1000||
-            !(cyc_render_line_mask(y)&8)||cyc_render_line_scroll_x(y)!=scroll||
-            cyc_render_line_scroll_y(y)!=world_y+y-top){ok=0;break;}
-        if(!ok)continue;
-        out->table=table;out->row=row;out->col=col;out->width=width;out->height=height;out->x=left;out->y=top;return 1;
+        for(int y=top;y<top+(int)height*8;y++)
+            if(cyc_render_line_bg_table(y)!=0x1000||!(cyc_render_line_mask(y)&8)||
+               cyc_render_line_scroll_x(y)!=sx||cyc_render_line_scroll_y(y)!=(wy+y-top)%480){ok=0;break;}
+        if(ok){*out=(ItemWindow){table,row,col,width,height,left,top};return 1;}
+    }
+    return 0;
+}
+static void item_collect_windows_full(void)
+{
+    item_window_count=0;
+    for(unsigned y=0;y<60&&item_window_count<16;y++)for(unsigned x=0;x<64&&item_window_count<16;x++){
+        if(command_world_tile(x,y)!=0xC0)continue;
+        for(unsigned width=4;width<=32&&item_window_count<16;width++){
+            if(command_world_tile(x+width-1,y)!=0xC1)continue;
+            int ok=1;
+            for(unsigned c=1;c<width-1;c++){
+                unsigned t=command_world_tile(x+c,y);
+                if(t!=0xFF&&t!=0xC4&&t!=0xF4){ok=0;break;}
+            }
+            if(!ok)continue;
+            for(unsigned height=4;height<=30&&item_window_count<16;height++){
+                if(command_world_tile(x,y+height-1)!=0xC2||command_world_tile(x+width-1,y+height-1)!=0xC3)continue;
+                ok=1;
+                for(unsigned c=1;c<width-1;c++)if(command_world_tile(x+c,y+height-1)!=0xC4){ok=0;break;}
+                for(unsigned r=1;r<height-1&&ok;r++)if(command_world_tile(x,y+r)!=0xC5||command_world_tile(x+width-1,y+r)!=0xC5)ok=0;
+                if(ok&&item_window_position((y/30)*2+x/32,y%30,x%32,width,height,&item_windows[item_window_count]))item_window_count++;
+            }
+        }
+    }
+}
+
+/* ITEM_MENU_OCCLUSION_V1: validate parent borders around confirmed children. */
+static int item_child_covers(int px,int py,const ItemWindow *parent)
+{
+    for(unsigned i=0;i<item_window_count;i++){
+        const ItemWindow *w=&item_windows[i];
+        if(w->width*w->height>=parent->width*parent->height)continue;
+        if(px>=w->x&&py>=w->y&&px+8<=w->x+(int)w->width*8&&py+8<=w->y+(int)w->height*8)return 1;
     }
     return 0;
 }
 static void item_collect_windows(void)
 {
-    item_window_count=0;
-    for(unsigned table=0;table<4&&item_window_count<16;table++)
-    for(unsigned row=0;row<27&&item_window_count<16;row++)
-    for(unsigned col=0;col<29&&item_window_count<16;col++){
-        uint16_t a=(uint16_t)(0x2000+table*1024+row*32+col);
-        if(cyc_render_nametable(a)!=0xC0)continue;
-        for(unsigned w=4;col+w<=32&&item_window_count<16;w++){
-            if(cyc_render_nametable((uint16_t)(a+w-1))!=0xC1)continue;
-            int ok=1;
-            for(unsigned c=1;c<w-1;c++){unsigned t=cyc_render_nametable((uint16_t)(a+c));if(t!=0xFF&&t!=0xC4&&t!=0xF4){ok=0;break;}}
-            if(!ok)continue;
-            for(unsigned h=4;row+h<=30&&item_window_count<16;h++){
-                uint16_t bottom=(uint16_t)(a+(h-1)*32);
-                if(cyc_render_nametable(bottom)!=0xC2||cyc_render_nametable((uint16_t)(bottom+w-1))!=0xC3)continue;
-                ok=1;
-                for(unsigned c=1;c<w-1;c++)if(cyc_render_nametable((uint16_t)(bottom+c))!=0xC4)ok=0;
-                for(unsigned r=1;r<h-1;r++)if(cyc_render_nametable((uint16_t)(a+r*32))!=0xC5||
-                    cyc_render_nametable((uint16_t)(a+r*32+w-1))!=0xC5)ok=0;
-                if(ok&&item_window_position(table,row,col,w,h,&item_windows[item_window_count]))item_window_count++;
+    item_collect_windows_full();
+    for(unsigned pass=0;pass<4&&item_window_count<16;pass++){
+        unsigned before=item_window_count;
+        for(unsigned y=0;y<60&&item_window_count<16;y++)for(unsigned x=0;x<64&&item_window_count<16;x++){
+            if(command_world_tile(x,y)!=0xC0)continue;
+            for(unsigned width=4;width<=32&&item_window_count<16;width++){
+                if(command_world_tile(x+width-1,y)!=0xC1)continue;
+                int top_ok=1;
+                for(unsigned c=1;c<width-1;c++){
+                    unsigned t=command_world_tile(x+c,y);
+                    if(t!=0xFF&&t!=0xF4&&t!=0xC4){top_ok=0;break;}
+                }
+                if(!top_ok)continue;
+                for(unsigned height=4;height<=30&&item_window_count<16;height++){
+                    ItemWindow p;
+                    if(!item_window_position((y/30)*2+x/32,y%30,x%32,width,height,&p))continue;
+                    int duplicate=0;
+                    for(unsigned i=0;i<item_window_count;i++)if(item_windows[i].x==p.x&&item_windows[i].y==p.y&&item_windows[i].width==width&&item_windows[i].height==height)duplicate=1;
+                    if(duplicate)continue;
+                    int ok=1;unsigned covered=0,visible=0,left=0,right=0,bottom=0;
+                    for(unsigned r=1;r<height&&ok;r++)for(unsigned c=0;c<width;c++){
+                        if(r!=height-1&&c!=0&&c!=width-1)continue;
+                        if(item_child_covers(p.x+(int)c*8,p.y+(int)r*8,&p)){covered++;continue;}
+                        unsigned want=r==height-1?(c==0?0xC2:c==width-1?0xC3:0xC4):0xC5;
+                        if(command_world_tile(x+c,y+r)!=want){ok=0;break;}
+                        visible++;if(c==0)left++;if(c==width-1)right++;if(r==height-1)bottom++;
+                    }
+                    if(ok&&covered&&visible>=8&&left>=3&&right>=3&&bottom>=2)item_windows[item_window_count++]=p;
+                }
             }
         }
+        if(item_window_count==before)break;
     }
 }
+static void item_restore_child_pixels(int l,int t,int r,int b)
+{
+    unsigned area=0xFFFFFFFFu;
+    for(unsigned i=0;i<item_window_count;i++){
+        const ItemWindow *w=&item_windows[i];
+        if(l>=w->x&&t>=w->y&&r<=w->x+(int)w->width*8&&b<=w->y+(int)w->height*8&&w->width*w->height<area)area=w->width*w->height;
+    }
+    if(area==0xFFFFFFFFu)return;
+    for(unsigned i=0;i<item_window_count;i++){
+        const ItemWindow *w=&item_windows[i];if(w->width*w->height>=area)continue;
+        int left=l>w->x?l:w->x,top=t>w->y?t:w->y;
+        int right=r<w->x+(int)w->width*8?r:w->x+(int)w->width*8;
+        int bottom=b<w->y+(int)w->height*8?b:w->y+(int)w->height*8;
+        for(int y=top;y<bottom;y++)for(int x=left;x<right;x++)english_picture[y*256+x]=item_preserved[y*256+x];
+    }
+}
+
 static void item_collect_names(void)
 {
     item_catalog_load();item_match_count=item_coin_count=0;
@@ -1131,17 +1253,17 @@ static void item_collect_names(void)
                 const NativeItemName *name=&native_item_names[id];
                 if(!item_labels[id][0]||c+name->length>w->width-1)continue;
                 int ok=1;
-                for(unsigned j=0;j<name->length;j++)if(cyc_render_nametable((uint16_t)(pos+j))!=name->tiles[j]||
-                    cyc_render_nametable((uint16_t)(pos-32+j))!=name->marks[j]){ok=0;break;}
+                for(unsigned j=0;j<name->length;j++)if(item_window_tile(w,(int)r,(int)(c+j))!=name->tiles[j]||
+                    item_window_tile(w,(int)r-1,(int)(c+j))!=name->marks[j]){ok=0;break;}
                 if(!ok)continue;
                 int x=w->x+(int)c*8,y=w->y+(int)r*8;int duplicate=0;
                 for(unsigned j=0;j<item_match_count;j++)if(item_matches[j].x==x&&item_matches[j].y==y)duplicate=1;
                 if(!duplicate){ItemNameMatch *m=&item_matches[item_match_count++];m->id=id;m->x=x;m->y=y;m->width=name->length*8;}
             }
-            if(item_coin_count<24&&c+2<=w->width-1&&cyc_render_nametable(pos)==0xB8&&cyc_render_nametable((uint16_t)(pos+1))==0xB9){
+            if(item_coin_count<24&&c+2<=w->width-1&&item_window_tile(w,(int)r,(int)c)==0xB8&&item_window_tile(w,(int)r,(int)c+1)==0xB9){
                 unsigned digits=0;
                 for(unsigned j=1;j<=6&&j<c;j++){
-                    unsigned v=cyc_render_nametable((uint16_t)(pos-j));
+                    unsigned v=item_window_tile(w,(int)r,(int)c-(int)j);
                     if(v>=0x80&&v<=0x89)digits++;else if(v!=0xFF)break;
                 }
                 if(digits){ItemCoinMatch *m=&item_coins[item_coin_count++];m->x=w->x+(int)c*8;m->y=w->y+(int)r*8;}
@@ -1210,17 +1332,472 @@ static void item_compact_words(int x,int y,const char *text)
             if(bits&(1u<<(14-r*3-c)))english_picture[(y+(int)r)*256+x+(int)c]=UINT32_C(0xFFFFFFFF);
     }
 }
+/* ITEM_OBTAINED_V1: shared acquisition suffix, display only. */
+static int item_obtained(int draw)
+{
+    static const uint8_t text[6]={0xC6,0xDB,0xDE,0xCA,0xF0,0xD8};
+    int found=0;
+    for(unsigned i=0;i<item_window_count;i++){
+        const ItemWindow *w=&item_windows[i];
+        for(unsigned r=2;r+1<w->height;r++)for(unsigned c=1;c+7<w->width;c++){
+            uint16_t a=(uint16_t)(0x2000+w->table*1024+(w->row+r)*32+w->col+c);
+            int ok=1;
+            for(unsigned j=0;j<6;j++)
+                if(item_window_tile(w,(int)r,(int)(c+j))!=text[j]||
+                   item_window_tile(w,(int)r-1,(int)(c+j))!=0xFF){ok=0;break;}
+            if(!ok||item_window_tile(w,(int)r,(int)c+6)!=0xFF||
+               item_window_tile(w,(int)r-1,(int)c+6)!=0xFF)continue;
+            int x=w->x+(int)c*8,y=w->y+(int)r*8;
+            if(x<0||x+56>256||y<8||y+8>240)continue;
+            found++;
+            if(draw){clear_text_area(x,y-8,x+56,y+8);draw_words(x,y+1,"OBTAINED.");}
+        }
+    }
+    return found;
+}
+
+/* GIVE_HEADING_HEIGHT_V1: variable-height item windows, heading only. */
+static int item_give_heading(int draw)
+{
+    static const uint8_t heading[2][12]={
+        {192,255,255,255,255,255,255,255,255,255,255,193},
+        {197,255,221,222,198,255,242,216,213,245,255,197}
+    };
+    int found=0;
+    for(unsigned i=0;i<item_window_count;i++){
+        const ItemWindow *w=&item_windows[i];
+        if(w->width!=12||w->height<4)continue;
+        uint16_t a=(uint16_t)(0x2000+w->table*1024+w->row*32+w->col);
+        int ok=1;
+        for(unsigned r=0;r<2&&ok;r++)for(unsigned c=0;c<12;c++)
+            if(item_window_tile(w,(int)r,(int)c)!=heading[r][c]){ok=0;break;}
+        if(!ok||w->x<0||w->x+96>256||w->y<0||w->y+16>240)continue;
+        /* Do not paint across a smaller modal window covering this heading. */
+        for(int r=0;r<2&&ok;r++)for(int c=2;c<11;c++)
+            if(submenu_tile_covered(w->x+c*8,w->y+r*8,w->x,w->y,96,(int)w->height*8)){ok=0;break;}
+        if(!ok)continue;
+        found++;
+        if(draw){
+            clear_text_area(w->x+16,w->y,w->x+88,w->y+16);
+            draw_words(w->x+16,w->y+9,"GIVE WHAT?");
+        }
+    }
+    return found;
+}
+
+/* ITEM_EVERYDAY_HEADING_V1: captured category heading, display only. */
+static int item_category_heading(int draw)
+{
+    static const uint8_t heading[2][12]={{192,255,255,255,255,244,255,255,255,255,255,193},{197,255,255,222,217,212,200,203,227,243,255,197}};
+    int found=0;
+    for(unsigned i=0;i<item_window_count;i++){
+        const ItemWindow *w=&item_windows[i];
+        if(w->width!=12||w->height<4)continue;
+            int ok=1;
+        for(unsigned r=0;r<2&&ok;r++)for(unsigned c=0;c<12;c++)
+            if(item_window_tile(w,(int)r,(int)c)!=heading[r][c]){ok=0;break;}
+        if(!ok||w->x<0||w->x+96>256||w->y<0||w->y+16>240)continue;
+        /* Do not paint across a smaller modal window covering this heading. */
+        for(int r=0;r<2&&ok;r++)for(int c=2;c<11;c++)
+            if(submenu_tile_covered(w->x+c*8,w->y+r*8,w->x,w->y,96,(int)w->height*8)){ok=0;break;}
+        if(!ok)continue;
+        found++;
+        if(draw){
+            clear_text_area(w->x+16,w->y,w->x+88,w->y+16);
+            draw_words(w->x+16,w->y+9,"EVERYDAY");
+        }
+    }
+    return found;
+}
+
+/* DROP_HEADING_HEIGHT_V1: shared drop-selection heading, display only. */
+static int item_drop_heading(int draw)
+{
+    static const uint8_t heading[2][12]={
+        {192,255,255,255,255,255,255,255,255,255,255,193},
+        {197,255,221,222,198,255,213,219,239,245,255,197}
+    };
+    int found=0;
+    for(unsigned i=0;i<item_window_count;i++){
+        const ItemWindow *w=&item_windows[i];
+        if(w->width!=12||w->height<4)continue;
+            int ok=1;
+        for(unsigned r=0;r<2&&ok;r++)for(unsigned c=0;c<12;c++)
+            if(item_window_tile(w,(int)r,(int)c)!=heading[r][c]){ok=0;break;}
+        if(!ok||w->x<0||w->x+96>256||w->y<0||w->y+16>240)continue;
+        /* Do not paint across a smaller modal window covering this heading. */
+        for(int r=0;r<2&&ok;r++)for(int c=2;c<11;c++)
+            if(submenu_tile_covered(w->x+c*8,w->y+r*8,w->x,w->y,96,(int)w->height*8)){ok=0;break;}
+        if(!ok)continue;
+        found++;
+        if(draw){
+            clear_text_area(w->x+16,w->y,w->x+88,w->y+16);
+            draw_words(w->x+16,w->y+9,"DROP WHAT?");
+        }
+    }
+    return found;
+}
+
+/* ITEM_NOT_WANTED_V1: shared item-discard popup, presentation only. */
+static int item_not_wanted(int draw)
+{
+    static const uint8_t suffix[12]={197,255,255,226,255,202,237,221,202,235,255,197};
+    int found=0;
+    for(unsigned i=0;i<item_window_count;i++){
+        const ItemWindow *w=&item_windows[i];
+        if(w->width!=12||w->height!=8)continue;
+        int ok=1;
+        for(unsigned c=0;c<12;c++){
+            unsigned top=c==0?192:c==11?193:196;
+            if(item_window_tile(w,0,(int)c)!=top||item_window_tile(w,4,(int)c)!=suffix[c]){ok=0;break;}
+            for(int r=3;r<=6;r++)if(r!=4){
+                unsigned want=c==0||c==11?197:255;
+                if(item_window_tile(w,r,(int)c)!=want){ok=0;break;}
+            }
+            if(!ok)break;
+        }
+        if(!ok)continue;
+        /* Match any native item name, not a particular catalog translation. */
+        int item=0;
+        for(unsigned id=0;id<62&&!item;id++){
+            const NativeItemName *n=&native_item_names[id];
+            int same=1;
+            for(unsigned c=1;c<11;c++){
+                unsigned glyph=255,mark=255;
+                if(c>=2&&c<2+n->length){glyph=n->tiles[c-2];mark=n->marks[c-2];}
+                if(item_window_tile(w,2,(int)c)!=glyph||item_window_tile(w,1,(int)c)!=mark){same=0;break;}
+            }
+            if(same)item=1;
+        }
+        if(!item)continue;
+        for(int r=3;r<=4&&ok;r++)for(int c=1;c<11;c++)
+            if(submenu_tile_covered(w->x+c*8,w->y+r*8,w->x,w->y,96,64)){ok=0;break;}
+        if(!ok)continue;
+        found++;
+        if(draw){
+            clear_text_area(w->x+8,w->y+24,w->x+88,w->y+40);
+            /* ITEM_DROPPED_WORDING_V1: discard-result wording only. */
+            draw_words(w->x+24,w->y+33,"DROPPED.");
+        }
+    }
+    return found;
+}
+
 static void item_table_draw(void)
 {
     for(unsigned i=0;i<item_match_count;i++){
         const ItemNameMatch *m=&item_matches[i];const char *name=item_labels[m->id];
+        memcpy(item_preserved,english_picture,sizeof item_preserved);
         clear_text_area(m->x,m->y-8,m->x+(int)m->width,m->y+8);
         if((int)strlen(name)*6-1<=(int)m->width)draw_words(m->x,m->y+1,name);
         else item_compact_words(m->x,m->y+2,name);
+        item_restore_child_pixels(m->x,m->y-8,m->x+(int)m->width,m->y+8);
     }
     for(unsigned i=0;i<item_coin_count;i++){
-        const ItemCoinMatch *m=&item_coins[i];clear_text_area(m->x,m->y,m->x+16,m->y+8);draw_words(m->x+2,m->y+1,"C");
+        const ItemCoinMatch *m=&item_coins[i];memcpy(item_preserved,english_picture,sizeof item_preserved);clear_text_area(m->x,m->y,m->x+16,m->y+8);draw_words(m->x+2,m->y+1,"C");
+        item_restore_child_pixels(m->x,m->y,m->x+16,m->y+8);
     }
+}
+
+/* NPC_TEMPLE_INTEGRATED_V2: exact captured frame/text, presentation only. */
+static int npc_temple_box_find(int *left_out, int *top_out)
+{
+    static const uint8_t expected[8][12] = {
+        {0xC0,0xC4,0xC4,0xC4,0xC4,0xC4,0xC4,0xC4,0xC4,0xC4,0xC4,0xC1},
+        {0xC5,0xFF,0xFF,0xF4,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xC5},
+        {0xC5,0xDC,0xCF,0xDC,0xCF,0xCD,0xDB,0xED,0xDE,0xFF,0xFF,0xC5},
+        {0xC5,0xFF,0xFF,0xFF,0xFF,0xFF,0xF4,0xFF,0xFF,0xFF,0xFF,0xC5},
+        {0xC5,0xCA,0xC9,0xD8,0xE6,0xCB,0xCE,0xCA,0xCA,0xEC,0xFF,0xC5},
+        {0xC5,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xC5},
+        {0xC5,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xC5},
+        {0xC2,0xC4,0xC4,0xC4,0xC4,0xC4,0xC4,0xC4,0xC4,0xC4,0xC4,0xC3}
+    };
+    for(unsigned row=0;row<60;row++)for(unsigned col=0;col<64;col++){
+        if(command_world_tile(col,row)!=0xC0)continue;
+        int match=1;
+        for(unsigned r=0;r<8&&match;r++)for(unsigned c=0;c<12;c++)
+            if(command_world_tile(col+c,row+r)!=expected[r][c]){match=0;break;}
+        if(!match)continue;
+        int world_x=(int)col*8,world_y=(int)row*8;
+        for(int top=0;top+64<=240;top++){
+            if(cyc_render_line_scroll_y(top)!=world_y)continue;
+            int sx=cyc_render_line_scroll_x(top);
+            if(sx<0||sx>=512)continue;
+            int left=(world_x-sx+512)%512;
+            if(left+96>256)continue;
+            int visible=1;
+            for(int y=top;y<top+64;y++)
+                if(cyc_render_line_bg_table(y)!=0x1000||!(cyc_render_line_mask(y)&8)||
+                   cyc_render_line_scroll_x(y)!=sx||
+                   cyc_render_line_scroll_y(y)!=(world_y+y-top)%480){visible=0;break;}
+            if(visible){*left_out=left;*top_out=top;return 1;}
+        }
+    }
+    return 0;
+}
+
+/* GRANDPA_ALCOHOL_V1: PRG 1ED74, exact three-line text and enclosing frame. */
+static int grandpa_alcohol_find(int *left_out,int *top_out,int *width_out)
+{
+    static const uint8_t raw[3][6]={
+        {0x47,0xCE,0x44,0x4D,0x6D,0x5C},
+        {0x47,0x4D,0x4B,0xC8,0,0},
+        {0x4F,0x49,0xD2,0x66,0,0}
+    };
+    static const unsigned lengths[3]={6,4,4};
+    for(unsigned row=0;row<60;row++)for(unsigned col=0;col<64;col++){
+        if(command_world_tile(col,row)!=0xC0)continue;
+        int text_ok=1;
+        for(unsigned line=0;line<3&&text_ok;line++)for(unsigned i=0;i<lengths[line];i++){
+            unsigned tile=(raw[line][i]&0x7Fu)+0x80u;
+            if(tile>=0xC0u)tile+=6;
+            if(command_world_tile(col+1+i,row+2+line*2)!=tile||
+               command_world_tile(col+1+i,row+1+line*2)!=((raw[line][i]&0x80u)?0xF4:0xFF)){
+                text_ok=0;break;
+            }
+        }
+        if(!text_ok)continue;
+        for(unsigned w=8;w<=32;w++){
+            if(command_world_tile(col+w-1,row)!=0xC1)continue;
+            for(unsigned h=8;h<=24;h++){
+                if(command_world_tile(col,row+h-1)!=0xC2||
+                   command_world_tile(col+w-1,row+h-1)!=0xC3)continue;
+                int ok=1;
+                for(unsigned r=0;r<h&&ok;r++)for(unsigned c=0;c<w;c++){
+                    unsigned wanted;
+                    if(r==0)wanted=c==0?0xC0:c==w-1?0xC1:0xC4;
+                    else if(r==h-1)wanted=c==0?0xC2:c==w-1?0xC3:0xC4;
+                    else if(c==0||c==w-1)wanted=0xC5;
+                    else{
+                        wanted=0xFF;
+                        if(r<=6){
+                            unsigned line=(r-1)/2,i=c-1;
+                            if(i<lengths[line]){
+                                if(r&1)wanted=(raw[line][i]&0x80u)?0xF4:0xFF;
+                                else{wanted=(raw[line][i]&0x7Fu)+0x80u;if(wanted>=0xC0u)wanted+=6;}
+                            }
+                        }
+                    }
+                    if(command_world_tile(col+c,row+r)!=wanted){ok=0;break;}
+                }
+                if(!ok)continue;
+                int world_x=(int)col*8,world_y=(int)row*8;
+                for(int top=0;top+(int)h*8<=240;top++){
+                    if(cyc_render_line_scroll_y(top)!=world_y)continue;
+                    int sx=cyc_render_line_scroll_x(top);
+                    if(sx<0||sx>=512)continue;
+                    int left=(world_x-sx+512)%512;
+                    if(left+(int)w*8>256)continue;
+                    ok=1;
+                    for(int y=top;y<top+(int)h*8;y++)
+                        if(cyc_render_line_bg_table(y)!=0x1000||!(cyc_render_line_mask(y)&8)||
+                           cyc_render_line_scroll_x(y)!=sx||
+                           cyc_render_line_scroll_y(y)!=(world_y+y-top)%480){ok=0;break;}
+                    if(ok){*left_out=left;*top_out=top;*width_out=(int)w*8;return 1;}
+                }
+            }
+        }
+    }
+    return 0;
+}
+
+/* SWING_TREE_HINT_V1: PRG 1EDA7, exact two-line hint and frame. */
+static int swing_tree_hint_find(int *left_out,int *top_out)
+{
+    static const uint8_t expected[8][12] = {
+        {0xC0,0xC4,0xC4,0xC4,0xC4,0xC4,0xC4,0xC4,0xC4,0xC4,0xC4,0xC1},
+        {0xC5,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xC5},
+        {0xC5,0xE9,0xD2,0xCB,0xE1,0xFF,0xCF,0xE1,0xD4,0xD8,0xC6,0xC5},
+        {0xC5,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xF4,0xFF,0xFF,0xC5},
+        {0xC5,0xE7,0xCA,0xDE,0xD9,0xFF,0xE8,0xDB,0xD2,0xED,0xF3,0xC5},
+        {0xC5,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xC5},
+        {0xC5,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xC5},
+        {0xC2,0xC4,0xC4,0xC4,0xC4,0xC4,0xC4,0xC4,0xC4,0xC4,0xC4,0xC3}
+    };
+    for(unsigned row=0;row<60;row++)for(unsigned col=0;col<64;col++){
+        if(command_world_tile(col,row)!=0xC0)continue;
+        int match=1;
+        for(unsigned r=0;r<8&&match;r++)for(unsigned c=0;c<12;c++)
+            if(command_world_tile(col+c,row+r)!=expected[r][c]){match=0;break;}
+        if(!match)continue;
+        int world_x=(int)col*8,world_y=(int)row*8;
+        for(int top=0;top+64<=240;top++){
+            if(cyc_render_line_scroll_y(top)!=world_y)continue;
+            int sx=cyc_render_line_scroll_x(top);
+            if(sx<0||sx>=512)continue;
+            int left=(world_x-sx+512)%512;
+            if(left+96>256)continue;
+            int visible=1;
+            for(int y=top;y<top+64;y++)
+                if(cyc_render_line_bg_table(y)!=0x1000||!(cyc_render_line_mask(y)&8)||
+                   cyc_render_line_scroll_x(y)!=sx||
+                   cyc_render_line_scroll_y(y)!=(world_y+y-top)%480){visible=0;break;}
+            if(visible){*left_out=left;*top_out=top;return 1;}
+        }
+    }
+    return 0;
+}
+
+/* NPC_GREEDY_V1: exact source message at PRG 1ED3C. */
+static int npc_greedy_find(int *left,int *top,int *width)
+{
+    static const uint8_t glyph[2][6]={{0xCD,0xF3,0xDD,0xE1,0xD2,0xE2},{0xEC,0xD0,0xE2,0xEE,0xD8,0xEC}};
+    static const uint8_t marks[2][6]={{255,255,255,255,255,255},{255,255,0xF4,255,0xF4,255}};
+    for(unsigned row=0;row<60;row++)for(unsigned col=0;col<64;col++){
+        if(command_world_tile(col,row)!=0xC0)continue;
+        for(unsigned w=8;w<=12;w++){
+            int ok=1;
+            for(unsigned r=0;r<8&&ok;r++)for(unsigned c=0;c<w;c++){
+                unsigned want=255;
+                if(r==0)want=c==0?0xC0:c==w-1?0xC1:0xC4;
+                else if(r==7)want=c==0?0xC2:c==w-1?0xC3:0xC4;
+                else if(c==0||c==w-1)want=0xC5;
+                else if(c<=6){
+                    if(r==1||r==3)want=marks[(r-1)/2][c-1];
+                    if(r==2||r==4)want=glyph[(r-2)/2][c-1];
+                }
+                if(command_world_tile(col+c,row+r)!=want){ok=0;break;}
+            }
+            if(!ok)continue;
+            for(int y=0;y+64<=240;y++){
+                if(cyc_render_line_scroll_y(y)!=(int)row*8)continue;
+                int sx=cyc_render_line_scroll_x(y);
+                if(sx<0||sx>=512)continue;
+                int x=((int)col*8-sx+512)%512;
+                if(x+(int)w*8>256)continue;
+                int visible=1;
+                for(int yy=y;yy<y+64;yy++)
+                    if(cyc_render_line_bg_table(yy)!=0x1000||!(cyc_render_line_mask(yy)&8)||
+                       cyc_render_line_scroll_x(yy)!=sx||
+                       cyc_render_line_scroll_y(yy)!=((int)row*8+yy-y)%480){visible=0;break;}
+                if(visible){*left=x;*top=y;*width=(int)w;return 1;}
+            }
+        }
+    }
+    return 0;
+}
+
+/* NPC_SWEETS_V1: source PRG 1ED4A, display only. */
+static int npc_sweets_find(int *left,int *top)
+{
+    static const uint8_t expected[10][12]={{192,196,196,196,196,196,196,196,196,196,196,193},{197,255,255,255,255,255,255,255,255,255,244,197},{197,205,243,221,225,210,226,255,236,203,206,197},{197,255,255,255,255,255,255,255,255,255,244,197},{197,212,220,255,207,240,202,221,234,225,206,197},{197,255,255,244,255,255,255,255,255,255,255,197},{197,213,207,216,236,255,255,255,255,255,255,197},{197,255,255,255,255,255,255,255,255,255,255,197},{197,255,255,255,255,255,255,255,255,255,255,197},{194,196,196,196,196,196,196,196,196,196,196,195}};
+    for(unsigned row=0;row<60;row++)for(unsigned col=0;col<64;col++){
+        if(command_world_tile(col,row)!=0xC0)continue;
+        int match=1;
+        for(unsigned r=0;r<10&&match;r++)for(unsigned c=0;c<12;c++){
+            if(r==8&&c>0&&c<11)continue; /* Preserve native continuation indicator. */
+            if(command_world_tile(col+c,row+r)!=expected[r][c]){match=0;break;}
+        }
+        if(!match)continue;
+        for(int y=0;y+80<=240;y++){
+            if(cyc_render_line_scroll_y(y)!=(int)row*8)continue;
+            int sx=cyc_render_line_scroll_x(y);
+            if(sx<0||sx>=512)continue;
+            int x=((int)col*8-sx+512)%512;
+            if(x+96>256)continue;
+            int visible=1;
+            for(int yy=y;yy<y+80;yy++)
+                if(cyc_render_line_bg_table(yy)!=0x1000||!(cyc_render_line_mask(yy)&8)||
+                   cyc_render_line_scroll_x(yy)!=sx||
+                   cyc_render_line_scroll_y(yy)!=((int)row*8+yy-y)%480){visible=0;break;}
+            if(visible){*left=x;*top=y;return 1;}
+        }
+    }
+    return 0;
+}
+
+/* FLOWER_PURCHASE_V1: exact captured 1000-coin bouquet prompt. */
+static int flower_purchase_present(void)
+{
+    static const uint8_t tiles[32]={255,255,255,255,226,221,216,226,226,138,129,128,128,128,184,185,219,213,139,206,202,231,213,206,245,255,255,255,255,255,255,255};
+    static const uint8_t marks[32]={255,255,255,255,255,255,255,244,255,255,255,255,255,255,255,255,244,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255};
+    for(unsigned i=0;i<32;i++)
+        if(cyc_render_nametable((uint16_t)(0x2320+i))!=tiles[i]||
+           cyc_render_nametable((uint16_t)(0x2300+i))!=marks[i])return 0;
+    for(int y=193;y<233;y++)
+        if(cyc_render_line_bg_table(y)!=0x1000||cyc_render_line_scroll_x(y)!=16||
+           cyc_render_line_scroll_y(y)!=239+y||!(cyc_render_line_mask(y)&8))return 0;
+    return 1;
+}
+
+/* NPC_TENTEN_V1: exact captured frame; display only. */
+static int npc_tenten_find(int *left_out, int *top_out)
+{
+    static const uint8_t expected[8][12] = {
+        {192,196,196,196,196,196,196,196,196,196,196,193},
+        {197,255,255,255,255,255,255,255,255,255,255,197},
+        {197,219,243,219,243,225,220,210,241,222,255,197},
+        {197,255,255,255,255,255,255,255,255,255,255,197},
+        {197,202,201,216,245,255,255,255,255,255,255,197},
+        {197,255,255,255,255,255,255,255,255,255,255,197},
+        {197,255,255,255,255,255,255,255,255,255,255,197},
+        {194,196,196,196,196,196,196,196,196,196,196,195}
+    };
+    for(unsigned row=0;row<60;row++)for(unsigned col=0;col<64;col++){
+        if(command_world_tile(col,row)!=0xC0)continue;
+        int match=1;
+        for(unsigned r=0;r<8&&match;r++)for(unsigned c=0;c<12;c++)
+            if(command_world_tile(col+c,row+r)!=expected[r][c]){match=0;break;}
+        if(!match)continue;
+        int world_x=(int)col*8,world_y=(int)row*8;
+        for(int top=0;top+64<=240;top++){
+            if(cyc_render_line_scroll_y(top)!=world_y)continue;
+            int sx=cyc_render_line_scroll_x(top);
+            if(sx<0||sx>=512)continue;
+            int left=(world_x-sx+512)%512;
+            if(left+96>256)continue;
+            int visible=1;
+            for(int y=top;y<top+64;y++)
+                if(cyc_render_line_bg_table(y)!=0x1000||!(cyc_render_line_mask(y)&8)||
+                   cyc_render_line_scroll_x(y)!=sx||
+                   cyc_render_line_scroll_y(y)!=(world_y+y-top)%480){visible=0;break;}
+            if(visible){*left_out=left;*top_out=top;return 1;}
+        }
+    }
+    return 0;
+}
+/* NPC_SHOPPING_BAG_V1: exact captured text/frame, display only. */
+static int npc_shopping_bag_find(int *left_out, int *top_out)
+{
+    static const uint8_t expected[8][12] = {
+        {192,196,196,196,196,196,196,196,196,196,196,193},
+        {197,255,255,255,255,255,255,255,255,255,255,197},
+        {197,206,202,234,225,222,226,255,255,255,255,197},
+        {197,255,244,255,244,255,255,255,255,255,255,197},
+        {197,206,226,243,206,202,239,236,255,255,255,197},
+        {197,255,255,255,255,255,255,255,255,255,255,197},
+        {197,255,255,255,255,255,255,255,255,255,255,197},
+        {194,196,196,196,196,196,196,196,196,196,196,195}
+    };
+    for(unsigned row=0;row<60;row++)for(unsigned col=0;col<64;col++){
+        if(command_world_tile(col,row)!=0xC0)continue;
+        int match=1;
+        for(unsigned r=0;r<8&&match;r++)for(unsigned c=0;c<12;c++)
+            if(command_world_tile(col+c,row+r)!=expected[r][c]){match=0;break;}
+        if(!match)continue;
+        int world_x=(int)col*8,world_y=(int)row*8;
+        for(int top=0;top+64<=240;top++){
+            if(cyc_render_line_scroll_y(top)!=world_y)continue;
+            int sx=cyc_render_line_scroll_x(top);
+            if(sx<0||sx>=512)continue;
+            int left=(world_x-sx+512)%512;
+            if(left+96>256)continue;
+            int visible=1;
+            for(int y=top;y<top+64;y++)
+                if(cyc_render_line_bg_table(y)!=0x1000||!(cyc_render_line_mask(y)&8)||
+                   cyc_render_line_scroll_x(y)!=sx||
+                   cyc_render_line_scroll_y(y)!=(world_y+y-top)%480){visible=0;break;}
+            if(visible){*left_out=left;*top_out=top;return 1;}
+        }
+    }
+    return 0;
+}
+
+/* WAREHOUSE_THIEF_TEXT_V3: display-only exact dialogue rows. */
+static int warehouse_thief_page(void){
+static const uint8_t pages[3][2][32]={{{255,255,255,255,255,255,255,255,255,255,244,255,244,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255},{255,255,255,255,235,201,218,209,216,255,220,241,230,203,225,228,220,210,241,222,255,255,255,255,255,255,255,255,255,255,255,255}},{{255,255,255,255,255,255,255,255,255,244,255,244,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255},{255,255,255,255,218,203,210,203,219,206,216,206,255,226,202,201,219,202,216,139,255,255,255,255,255,255,255,255,255,255,255,255}},{{255,255,255,255,244,255,244,255,244,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255},{255,255,255,255,220,241,230,203,206,202,216,139,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255}}};
+for(int y=193;y<233;y++)if(cyc_render_line_bg_table(y)!=0x1000||cyc_render_line_scroll_x(y)!=16||cyc_render_line_scroll_y(y)!=239+y||!(cyc_render_line_mask(y)&8))return 0;
+for(unsigned p=0;p<3;p++){int ok=1;for(unsigned r=0;r<2;r++)for(unsigned c=0;c<32;c++)if(cyc_render_nametable((uint16_t)(0x2300+r*32+c))!=pages[p][r][c])ok=0;if(ok)return (int)p+1;}return 0;
 }
 
 const uint32_t *english_display_present(void *ctx, int *width, int *height)
@@ -1235,18 +1812,43 @@ const uint32_t *english_display_present(void *ctx, int *width, int *height)
     if (character_menu_v2_is_present()) {
         memcpy(english_picture, original, sizeof(english_picture));
         character_menu_v2_draw();
+        character_erase_names_draw();
         return english_picture;
     }
 
 
+    int npc_left=0,npc_top=0;
+    int npc_temple=npc_temple_box_find(&npc_left,&npc_top);
+
+    int grandpa_left=0,grandpa_top=0,grandpa_width=0;
+    int grandpa=grandpa_alcohol_find(&grandpa_left,&grandpa_top,&grandpa_width);
+
+    int swing_left=0,swing_top=0;
+    int swing_tree=swing_tree_hint_find(&swing_left,&swing_top);
+
+    int greedy_left=0,greedy_top=0,greedy_width=0;
+    int greedy=npc_greedy_find(&greedy_left,&greedy_top,&greedy_width);
+    int sweets_left=0,sweets_top=0;
+    int sweets=npc_sweets_find(&sweets_left,&sweets_top);
+    int flower_purchase=flower_purchase_present();
+    int tenten_left=0,tenten_top=0;
+    int tenten=npc_tenten_find(&tenten_left,&tenten_top);
+    int shopping_bag_left=0,shopping_bag_top=0;
+    int shopping_bag=npc_shopping_bag_find(&shopping_bag_left,&shopping_bag_top);
+    int warehouse_page=warehouse_thief_page();
     LocationCaption location_caption;
     int location = location_caption_find(&location_caption);
     int temple = temple_sentence_is_present();
     unsigned gameplay_ui = gameplay_ui_flags();
     CommandPanel command_panels[4];
     unsigned command_count = command_panel_find(command_panels);
+    int obtained = item_obtained(0);
     SubmenuPanel submenus[8];
     unsigned submenu_count = grouped_submenu_find(submenus);
+    int give_heading=item_give_heading(0);
+    int not_wanted=item_not_wanted(0);
+    int drop_heading=item_drop_heading(0);
+    int category_heading=item_category_heading(0);
     GameplayCannotPopup popups[4];
     unsigned popup_count = gameplay_cannot_popups(popups);
 
@@ -1283,7 +1885,7 @@ const uint32_t *english_display_present(void *ctx, int *width, int *height)
         }
     }
 
-    if (!temple && !lookup && !choices && !gameplay_ui && !popup_count && !command_count && !submenu_count && !location && !item_match_count && !item_coin_count)
+    if (!grandpa && !npc_temple && !swing_tree && !greedy && !sweets && !flower_purchase && !tenten && !category_heading && !drop_heading && !not_wanted && !give_heading && !warehouse_page && !shopping_bag && !temple && !lookup && !choices && !gameplay_ui && !popup_count && !command_count && !submenu_count && !location && !item_match_count && !item_coin_count && !obtained)
         return original;
 
     memcpy(english_picture, original, sizeof(english_picture));
@@ -1325,6 +1927,78 @@ const uint32_t *english_display_present(void *ctx, int *width, int *height)
     if (location) location_caption_draw(&location_caption);
 
     item_table_draw();
+    if(warehouse_page){
+        clear_text_area(8,193,248,233);
+        if(warehouse_page==1){
+            draw_words(16,202,"IN THE POCKETS OF THE THIEF");
+            draw_words(16,214,"YOU DEFEATED...");
+        }else if(warehouse_page==2)draw_words(16,202,"THERE WAS A TRAVEL PASS.");
+        else draw_words(16,202,"YOU HAVE FOUND A THIEF!");
+    }
+    if(shopping_bag){
+        clear_text_area(shopping_bag_left+8,shopping_bag_top+8,shopping_bag_left+88,shopping_bag_top+48);
+        draw_words(shopping_bag_left+8,shopping_bag_top+9,"YOU NEED");
+        draw_words(shopping_bag_left+8,shopping_bag_top+21,"A BAG FOR");
+        draw_words(shopping_bag_left+8,shopping_bag_top+33,"SHOPPING.");
+    }
+    item_give_heading(1);
+    item_drop_heading(1);
+    item_category_heading(1);
+    if(tenten){
+        clear_text_area(tenten_left+8,tenten_top+8,tenten_left+88,tenten_top+48);
+        draw_words(tenten_left+8,tenten_top+9,"HAVE YOU");
+        draw_words(tenten_left+8,tenten_top+21,"BEEN TO");
+        draw_words(tenten_left+8,tenten_top+33,"TENTEN'S?");
+    }
+    if(flower_purchase){
+        clear_text_area(8,193,248,233);
+        draw_words(16,202,"A BOUQUET COSTS 1000 COINS.");
+        draw_words(16,214,"WILL YOU BUY ONE?");
+    }
+    if(sweets){
+        clear_text_area(sweets_left+8,sweets_top+8,sweets_left+88,sweets_top+64);
+        draw_words(sweets_left+8,sweets_top+17,"GIRLS LIKE");
+        draw_words(sweets_left+8,sweets_top+29,"SWEETS AND");
+        draw_words(sweets_left+8,sweets_top+41,"PRETTY");
+        draw_words(sweets_left+8,sweets_top+53,"THINGS.");
+    }
+    item_obtained(1);
+    item_not_wanted(1);
+    if(greedy){
+        int inner=(greedy_width-2)*8;
+        clear_text_area(greedy_left+8,greedy_top+8,greedy_left+(greedy_width-1)*8,greedy_top+48);
+        if(inner>=53)draw_words(greedy_left+8+(inner-53)/2,greedy_top+17,"GIRLS ARE");
+        else item_compact_words(greedy_left+8+(inner-35)/2,greedy_top+18,"GIRLS ARE");
+        draw_words(greedy_left+8+(inner-41)/2,greedy_top+33,"GREEDY.");
+    }
+
+    if(swing_tree){
+        clear_text_area(swing_left+8,swing_top+8,swing_left+88,swing_top+48);
+        draw_words(swing_left+15,swing_top+9,"CHECK UNDER");
+        draw_words(swing_left+21,swing_top+19,"THAT TREE");
+        draw_words(swing_left+18,swing_top+29,"OVER THERE");
+        draw_words(swing_left+18,swing_top+39,"EVERY DAY.");
+    }
+
+    if(grandpa){
+        clear_text_area(grandpa_left+8,grandpa_top+8,
+                        grandpa_left+grandpa_width-8,grandpa_top+56);
+        if(grandpa_width>=88){
+            draw_words(grandpa_left+8,grandpa_top+17,"GRANDPA LIKES");
+            draw_words(grandpa_left+8,grandpa_top+33,"ALCOHOL.");
+        }else{
+            draw_words(grandpa_left+8,grandpa_top+17,"GRANDPA");
+            draw_words(grandpa_left+8,grandpa_top+33,"LIKES");
+            draw_words(grandpa_left+8,grandpa_top+49,"ALCOHOL.");
+        }
+    }
+
+    if(npc_temple){
+        clear_text_area(npc_left+8,npc_top+8,npc_left+88,npc_top+56);
+        draw_words(npc_left+12,npc_top+13,"VISIT THE");
+        draw_words(npc_left+12,npc_top+29,"TEMPLE NOW");
+        draw_words(npc_left+12,npc_top+45,"AND THEN.");
+    }
 
     return english_picture;
 }

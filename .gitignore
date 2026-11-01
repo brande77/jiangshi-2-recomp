@@ -64,3 +64,11 @@ __pycache__/
 /fix_item_quantity_digits.py
 /clarify_save_labels.py
 /temple_rest_save_annotation.py
+
+# Local translation and release helpers
+/Install-*.ps1
+/Install-*.ps1.*
+/Capture-EraseConfirmation.ps1
+/erase-confirmation-diagnostic-*.txt
+/Package-Jiangshi2-*.ps1
+/Finalize-Jiangshi2-*.ps1
